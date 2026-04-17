@@ -46,6 +46,32 @@ input/ を走査
 
 ---
 
+## クイックスタート（ローカル版）
+
+```bash
+git clone https://github.com/masa-san-jp/pdf-to-md-pipeline.git
+cd pdf-to-md-pipeline/local
+python -m venv .venv && source .venv/bin/activate   # Windows は .venv\Scripts\activate
+pip install -r requirements.txt
+cp ~/Downloads/sample.pdf input/
+python run.py
+# → output/sample.md が生成され、input/sample.pdf は done/ へ退避
+```
+
+詳細・systemdサービス化・OCR有効化などは [`local/README.md`](./local/README.md) を参照。
+
+---
+
+## 実装状況
+
+| バリアント | 状態 |
+|---|---|
+| vol.1 ローカル版 | ✅ 実装済み（`local/`） |
+| vol.2 Colab版 | 📝 仕様書のみ |
+| vol.3 クラウド版 | 📝 仕様書のみ |
+
+---
+
 ## 仕様書
 
 詳細な設計仕様は `docs/` を参照してください：

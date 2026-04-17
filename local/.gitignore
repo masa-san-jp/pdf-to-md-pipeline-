@@ -1,0 +1,15 @@
+# 実行時に生成されるファイル・フォルダは追跡しない（ディレクトリ自体は .gitkeep で残す）
+input/*
+!input/.gitkeep
+output/*
+!output/.gitkeep
+done/*
+!done/.gitkeep
+logs/*
+!logs/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
