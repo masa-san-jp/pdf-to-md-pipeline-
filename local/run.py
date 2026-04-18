@@ -132,7 +132,8 @@ def main(argv: list[str] | None = None) -> int:
     while True:
       _run_once(paths, conv, done_conf)
       time.sleep(interval)
-  _run_once(paths, conv, done_conf)
+  else:
+    _run_once(paths, conv, done_conf)
   return 0
 
 
