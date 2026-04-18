@@ -1,0 +1,27 @@
+# ローカル版の設定ファイル。run.py はこのファイルを置いた場所の相対パスとして paths を解決する。
+
+paths:
+  input: ./input
+  output: ./output
+  done: ./done
+  logs: ./logs
+
+conversion:
+  format: markdown
+  use_struct_tree: true
+  image_output: "off"
+
+  # スキャンPDFをOCR対応にしたい場合に有効化する。
+  # 事前に別ターミナルで hybrid バックエンドを起動しておくこと：
+  #   opendataloader-pdf-hybrid --port 5002 --ocr-lang "ja,en" &
+  # hybrid: "docling-fast"
+  # hybrid_port: 5002
+  # ocr_lang: "ja,en"
+
+done:
+  # done/ へ移動する際に {name}_{YYYYMMDD_HHMMSS} を付与し、同名衝突を避ける
+  add_timestamp: true
+
+schedule:
+  # --loop モード時の実行間隔（分）
+  interval_minutes: 60
