@@ -1,4 +1,4 @@
 # ローカル版 vol.1 の依存パッケージ
-# スキャンPDFもOCRで扱いたい場合は [hybrid] extra を残したままにしてください。
-opendataloader-pdf[hybrid]
+# スキャンPDFもOCRで扱いたい場合は、別途 opendataloader-pdf[hybrid] をインストールしてください。
+opendataloader-pdf
 PyYAML>=6.0
