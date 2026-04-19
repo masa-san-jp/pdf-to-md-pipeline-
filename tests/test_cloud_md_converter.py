@@ -2,12 +2,15 @@
 
 google-cloud-documentai を直接インポートせずに動作するよう、
 Document・Page・Layout などのデータクラスをシンプルなスタブで代替する。
+スタブは autouse fixture で monkeypatch を使って差し替え、テスト後に自動復元する。
 """
 from __future__ import annotations
 
 import sys
 import types
 from unittest.mock import MagicMock
+
+import pytest
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -32,8 +35,7 @@ def _make_layout(text: str, full_text: str, block_type: str = ""):
   return layout
 
 
-def _stub_documentai():
-  """google.cloud.documentai を最小限のスタブモジュールに差し替える。"""
+def _build_documentai_stub() -> types.ModuleType:
   mod = types.ModuleType("google.cloud.documentai")
 
   class Document:
@@ -75,19 +77,20 @@ def _stub_documentai():
   mod.Table = Table
   mod.TableRow = TableRow
   mod.TableCell = TableCell
+  return mod
 
-  # google / google.cloud パッケージも登録
+
+@pytest.fixture(autouse=True)
+def _stub_documentai_modules(monkeypatch):
+  mod = _build_documentai_stub()
   google_mod = sys.modules.get("google") or types.ModuleType("google")
   google_cloud = sys.modules.get("google.cloud") or types.ModuleType("google.cloud")
   google_mod.cloud = google_cloud
   google_cloud.documentai = mod
-  sys.modules.setdefault("google", google_mod)
-  sys.modules.setdefault("google.cloud", google_cloud)
-  sys.modules["google.cloud.documentai"] = mod
-  return mod
+  monkeypatch.setitem(sys.modules, "google", google_mod)
+  monkeypatch.setitem(sys.modules, "google.cloud", google_cloud)
+  monkeypatch.setitem(sys.modules, "google.cloud.documentai", mod)
 
-
-_stub_documentai()
 
 from cloud.md_converter import concat_markdowns, docai_to_markdown  # noqa: E402
 

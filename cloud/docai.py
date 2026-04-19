@@ -8,7 +8,7 @@ import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-  from google.cloud import documentai
+  from google.cloud import documentai, storage
 
 __all__ = ["process_single", "process_folder"]
 
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 _SYNC_PAGE_LIMIT = 15
 
 
-def _make_client(location: str) -> "documentai.DocumentProcessorServiceClient":
+def _make_docai_client(location: str) -> "documentai.DocumentProcessorServiceClient":
   from google.api_core.client_options import ClientOptions
   from google.cloud import documentai
 
@@ -26,18 +26,22 @@ def _make_client(location: str) -> "documentai.DocumentProcessorServiceClient":
   return documentai.DocumentProcessorServiceClient(client_options=opts)
 
 
-def _page_count(gcs_uri: str, bucket_name: str) -> int:
+def _make_storage_client() -> "storage.Client":
+  from google.cloud import storage
+
+  return storage.Client()
+
+
+def _page_count(gcs_uri: str, bucket_name: str, storage_client: "storage.Client") -> int:
   """GCS 上の PDF のページ数を概算する（ファイルサイズで閾値判定）。
 
   正確なページ数取得は高コストなため、5MB 超を >15 ページと見なす。
+  blob が存在しない場合は FileNotFoundError を送出する。
   """
-  from google.cloud import storage
-
-  client = storage.Client()
   key = gcs_uri.removeprefix(f"gs://{bucket_name}/")
-  blob = client.bucket(bucket_name).get_blob(key)
+  blob = storage_client.bucket(bucket_name).get_blob(key)
   if blob is None:
-    return 0
+    raise FileNotFoundError(f"GCS 上にファイルが見つかりません: {gcs_uri}")
   # 5MB ≈ 100ページ相当として閾値を設定
   return 99 if blob.size and blob.size > 5 * 1024 * 1024 else 1
 
@@ -68,9 +72,10 @@ def _process_batch(
   gcs_input_uri: str,
   gcs_output_prefix: str,
   process_options: "documentai.ProcessOptions",
+  storage_client: "storage.Client",
 ) -> "documentai.Document":
   """バッチ処理を実行し、出力 JSON を結合した Document を返す。"""
-  from google.cloud import documentai, storage
+  from google.cloud import documentai
 
   request = documentai.BatchProcessRequest(
     name=processor_name,
@@ -98,8 +103,7 @@ def _process_batch(
   # 出力 JSON を読み込んで Document に復元
   bucket_name = gcs_output_prefix.removeprefix("gs://").split("/")[0]
   prefix = "/".join(gcs_output_prefix.removeprefix(f"gs://{bucket_name}/").rstrip("/").split("/"))
-  gcs_client = storage.Client()
-  blobs = list(gcs_client.list_blobs(bucket_name, prefix=prefix))
+  blobs = list(storage_client.list_blobs(bucket_name, prefix=prefix))
   json_blobs = [b for b in blobs if b.name.endswith(".json")]
   if not json_blobs:
     raise RuntimeError(f"バッチ処理の出力 JSON が見つかりません: {gcs_output_prefix}")
@@ -134,6 +138,29 @@ def _build_process_options(location: str) -> "documentai.ProcessOptions":
   )
 
 
+def _process_uri(
+  gcs_uri: str,
+  processor_name: str,
+  docai_client: "documentai.DocumentProcessorServiceClient",
+  storage_client: "storage.Client",
+  opts: "documentai.ProcessOptions",
+  *,
+  gcs_batch_output_prefix: str = "",
+) -> "documentai.Document":
+  """単体 URI に対して OCR を実行する内部ヘルパー。クライアントを外部から受け取る。"""
+  bucket_name = gcs_uri.removeprefix("gs://").split("/")[0]
+  pages = _page_count(gcs_uri, bucket_name, storage_client)
+
+  if pages <= _SYNC_PAGE_LIMIT:
+    logger.info("同期処理: %s", gcs_uri)
+    return _process_sync(docai_client, processor_name, gcs_uri, opts)
+
+  if not gcs_batch_output_prefix:
+    raise ValueError("バッチ処理には gcs_batch_output_prefix が必要です")
+  logger.info("バッチ処理: %s", gcs_uri)
+  return _process_batch(docai_client, processor_name, gcs_uri, gcs_batch_output_prefix, opts, storage_client)
+
+
 def process_single(
   gcs_input_uri: str,
   processor_name: str,
@@ -146,19 +173,17 @@ def process_single(
   ページ数に応じて同期/バッチを自動選択する。
   バッチ時は gcs_batch_output_prefix に一時出力先を指定すること。
   """
-  bucket_name = gcs_input_uri.removeprefix("gs://").split("/")[0]
-  pages = _page_count(gcs_input_uri, bucket_name)
-  client = _make_client(location)
+  docai_client = _make_docai_client(location)
+  storage_client = _make_storage_client()
   opts = _build_process_options(location)
-
-  if pages <= _SYNC_PAGE_LIMIT:
-    logger.info("同期処理: %s", gcs_input_uri)
-    return _process_sync(client, processor_name, gcs_input_uri, opts)
-
-  if not gcs_batch_output_prefix:
-    raise ValueError("バッチ処理には gcs_batch_output_prefix が必要です")
-  logger.info("バッチ処理: %s", gcs_input_uri)
-  return _process_batch(client, processor_name, gcs_input_uri, gcs_batch_output_prefix, opts)
+  return _process_uri(
+    gcs_input_uri,
+    processor_name,
+    docai_client,
+    storage_client,
+    opts,
+    gcs_batch_output_prefix=gcs_batch_output_prefix,
+  )
 
 
 def process_folder(
@@ -168,14 +193,23 @@ def process_folder(
   *,
   gcs_batch_output_prefix: str = "",
 ) -> list["documentai.Document"]:
-  """フォルダ内 PDF をファイル名昇順で OCR 処理し Document リストを返す。"""
+  """フォルダ内 PDF をファイル名昇順で OCR 処理し Document リストを返す。
+
+  クライアントとオプションを1回だけ生成し全 PDF で使い回す。
+  """
+  docai_client = _make_docai_client(location)
+  storage_client = _make_storage_client()
+  opts = _build_process_options(location)
+
   uris_sorted = sorted(gcs_input_uris, key=lambda u: u.rsplit("/", 1)[-1])
   docs: list = []
   for uri in uris_sorted:
-    doc = process_single(
+    doc = _process_uri(
       uri,
       processor_name,
-      location,
+      docai_client,
+      storage_client,
+      opts,
       gcs_batch_output_prefix=gcs_batch_output_prefix,
     )
     docs.append(doc)

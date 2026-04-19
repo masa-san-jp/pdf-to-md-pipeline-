@@ -139,8 +139,7 @@ def _reprocess_with_blocks(
       elif block_type == "LIST_ITEM":
         sections.append("- " + text)
       elif block_type == "TABLE":
-        # TABLE は page.tables から別途処理済みのため、text のみ追加
-        sections.append(text)
+        pass  # page.tables にて Markdown テーブルとして出力するためスキップ
       else:
         sections.append(text)
 
