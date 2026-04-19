@@ -35,16 +35,17 @@ def list_input_items(bucket: "storage.Bucket", prefix: str = "input/") -> list[s
   直下の .pdf と、直下サブフォルダ（1階層のみ）を列挙する。
   深いネストは対象外とし、フォルダは末尾 "/" で区別する。
   """
-  blobs = list(bucket.client.list_blobs(bucket, prefix=prefix, delimiter="/"))
+  blob_iter = bucket.client.list_blobs(bucket, prefix=prefix, delimiter="/")
 
   # list_blobs の delimiter 動作: blobs にファイル、prefixes にフォルダが入る
   # google-cloud-storage は iterator に prefixes 属性を持つ
   from google.cloud.storage.blob import Blob  # noqa: PLC0415
 
+  blobs = list(blob_iter)
   pdf_keys: list[str] = [
     b.name for b in blobs if isinstance(b, Blob) and b.name.lower().endswith(".pdf")
   ]
-  folder_prefixes: list[str] = list(blobs.prefixes) if hasattr(blobs, "prefixes") else []
+  folder_prefixes: list[str] = list(blob_iter.prefixes)
 
   items = pdf_keys + folder_prefixes
   logger.info("input/ アイテム数: %d (PDF=%d, フォルダ=%d)", len(items), len(pdf_keys), len(folder_prefixes))
