@@ -10,64 +10,74 @@
  * - エラーファイルは FOLDER_ID_ERROR へ退避
  */
 function processDocuments() {
-  var startTime = Date.now();
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) {
+    Logger.log('別の processDocuments 実行中のため、今回の実行はスキップします。');
+    return;
+  }
 
-  var inputFolder     = DriveApp.getFolderById(CONFIG.FOLDER_ID_INPUT);
-  var processedFolder = DriveApp.getFolderById(CONFIG.FOLDER_ID_PROCESSED);
-  var errorFolder     = DriveApp.getFolderById(CONFIG.FOLDER_ID_ERROR);
-  var outputFolder    = DriveApp.getFolderById(CONFIG.FOLDER_ID_OUTPUT);
+  try {
+    var startTime = Date.now();
 
-  var files = inputFolder.getFiles();
-  var processedCount = 0;
+    var inputFolder     = DriveApp.getFolderById(CONFIG.FOLDER_ID_INPUT);
+    var processedFolder = DriveApp.getFolderById(CONFIG.FOLDER_ID_PROCESSED);
+    var errorFolder     = DriveApp.getFolderById(CONFIG.FOLDER_ID_ERROR);
+    var outputFolder    = DriveApp.getFolderById(CONFIG.FOLDER_ID_OUTPUT);
 
-  while (files.hasNext()) {
-    if (Date.now() - startTime >= CONFIG.TIMEOUT_MS) {
-      Logger.log('タイムアウト。次回の実行で残りファイルを処理します。');
-      break;
-    }
-    if (processedCount >= CONFIG.MAX_FILES_PER_RUN) {
-      Logger.log('最大処理件数に達しました: ' + CONFIG.MAX_FILES_PER_RUN);
-      break;
-    }
+    var files = inputFolder.getFiles();
+    var processedCount = 0;
 
-    var file = files.next();
-    var mimeType = file.getMimeType();
+    while (files.hasNext()) {
+      if (Date.now() - startTime >= CONFIG.TIMEOUT_MS) {
+        Logger.log('タイムアウト。次回の実行で残りファイルを処理します。');
+        break;
+      }
+      if (processedCount >= CONFIG.MAX_FILES_PER_RUN) {
+        Logger.log('最大処理件数に達しました: ' + CONFIG.MAX_FILES_PER_RUN);
+        break;
+      }
 
-    if (CONFIG.SUPPORTED_MIME_TYPES.indexOf(mimeType) === -1) {
-      Logger.log('非対応ファイルをスキップ: ' + file.getName() + ' (' + mimeType + ')');
-      continue;
-    }
+      var file = files.next();
+      var mimeType = file.getMimeType();
 
-    try {
-      var base64Data = Utilities.base64Encode(file.getBlob().getBytes());
-      var result = GeminiService.extract(base64Data, mimeType);
-
-      if (!result) {
-        Logger.log('OCR失敗、エラーフォルダへ退避: ' + file.getName());
-        file.moveTo(errorFolder);
+      if (CONFIG.SUPPORTED_MIME_TYPES.indexOf(mimeType) === -1) {
+        Logger.log('非対応ファイルをスキップ: ' + file.getName() + ' (' + mimeType + ')');
         continue;
       }
 
-      var docName = DocService.buildDocName(result.filename);
+      try {
+        var base64Data = Utilities.base64Encode(file.getBlob().getBytes());
+        var result = GeminiService.extract(base64Data, mimeType);
 
-      // Google Doc を作成
-      DocService.createDoc(docName, result.content, outputFolder);
+        if (!result) {
+          Logger.log('OCR失敗、エラーフォルダへ退避: ' + file.getName());
+          file.moveTo(errorFolder);
+          continue;
+        }
 
-      // 入力ファイルをリネームして処理済みフォルダへ移動
-      var ext = _getExtension(file.getName());
-      file.setName(docName + ext);
-      file.moveTo(processedFolder);
+        var docName = DocService.buildDocName(result.filename);
 
-      Logger.log('完了: ' + docName);
-      processedCount++;
+        // Google Doc を作成
+        DocService.createDoc(docName, result.content, outputFolder);
 
-    } catch (e) {
-      Logger.log('エラー [' + file.getName() + ']: ' + e.toString());
-      try { file.moveTo(errorFolder); } catch (_) {}
+        // 入力ファイルをリネームして処理済みフォルダへ移動
+        var ext = _getExtension(file.getName());
+        file.setName(docName + ext);
+        file.moveTo(processedFolder);
+
+        Logger.log('完了: ' + docName);
+        processedCount++;
+
+      } catch (e) {
+        Logger.log('エラー [' + file.getName() + ']: ' + e.toString());
+        try { file.moveTo(errorFolder); } catch (_) {}
+      }
     }
-  }
 
-  Logger.log('処理完了: ' + processedCount + '件');
+    Logger.log('処理完了: ' + processedCount + '件');
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /**
