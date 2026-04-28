@@ -60,11 +60,7 @@ ocr-error/   → OCR 失敗ファイルの退避先
 
 4. 「プロジェクトの設定」→「appsscript.json を表示」を有効化し、`src/appsscript.json` の内容で上書きする
 
-### 3. Drive Advanced Service を有効化する
-
-「サービス」→「Drive API」→ v2 を追加
-
-### 4. スクリプトプロパティを設定する
+### 3. スクリプトプロパティを設定する
 
 「プロジェクトの設定」→「スクリプト プロパティ」から追加：
 
@@ -76,7 +72,7 @@ ocr-error/   → OCR 失敗ファイルの退避先
 | `FOLDER_ID_ERROR` | `ocr-error` フォルダの ID |
 | `FOLDER_ID_OUTPUT` | `ocr-output` フォルダの ID |
 
-### 5. トリガーを設定する
+### 4. トリガーを設定する
 
 「トリガー」→「トリガーを追加」
 
