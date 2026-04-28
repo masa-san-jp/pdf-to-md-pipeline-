@@ -35,7 +35,9 @@ var DocService = (function () {
    * @returns {string} 例: 20260428_請求書_ABC社_4月分
    */
   function buildDocName(contentName) {
-    return generateDatePrefix() + '_' + sanitizeFileName(contentName);
+    var sanitizedName = sanitizeFileName(contentName);
+    var safeName = sanitizedName || 'untitled';
+    return generateDatePrefix() + '_' + safeName;
   }
 
   /**
